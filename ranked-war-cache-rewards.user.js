@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Ranked War Cache Rewards Value
 // @namespace    http://tampermonkey.net/
-// @version      2.1
-// @description  Calculate and display ranked war cache reward values with % of total reward split, custom pricing, API integration, PDA support, and indirect rewards (points/respect). Features automatic theme detection and multiple trader configurations.
+// @version      3.0
+// @description  Calculate and display ranked war cache reward values with % of total reward split, custom pricing, API integration, PDA support, and other rewards (points/respect). Features automatic theme detection and multiple trader configurations.
 // @author       Mistborn [3037268]
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=torn.com
 // @match        https://www.torn.com/war.php?step=rankreport*
@@ -27,7 +27,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
 (function () {
     "use strict";
-    console.log("RWAwardValue: Script starting v2.1");
+    console.log("RWAwardValue: Script starting v3.0");
 
     // Enhanced PDA detection
     function isTornPDA() {
@@ -60,7 +60,8 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     let SETTINGS = {
         showApiValues: false,
         showIndirectRewards: false,
-        respectValue: 25000
+        showCustomPrices: false,
+        respectValue: 20000
     };
 
     // Cache API prices with timestamp to avoid repeated calls
@@ -69,20 +70,32 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         data: {}
     };
 
+    // Debug mode - window.rwDebugMode = true/false
+    let DEBUG_MODE = localStorage.getItem('rw_debug_mode') === 'true';
+
+    Object.defineProperty(window, 'rwDebugMode', {
+        get() { return DEBUG_MODE; },
+        set(value) {
+            DEBUG_MODE = !!value;
+            localStorage.setItem('rw_debug_mode', DEBUG_MODE.toString());
+            console.log('RW: Debug mode', DEBUG_MODE ? 'ENABLED' : 'DISABLED');
+        }
+    });
+
     // Custom seller prices (up to 10 different sellers) - declared before loadSettings
     let sellerData = {
         activeSeller: 0,
         sellers: [
-            { name: "Seller 1", prices: { armorCache: 312400000, heavyArmsCache: 250000000, mediumArmsCache: 191000000, meleeCache: 139500000, smallArmsCache: 111400000 } },
-            { name: "Seller 2", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 3", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 4", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 5", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 6", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 7", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 8", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 9", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-            { name: "Seller 10", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } }
+            { name: "Trader 1", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 2", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 3", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 4", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 5", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 6", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 7", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 8", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 9", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+            { name: "Trader 10", pricingMode: "fixed", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } }
         ]
     };
 
@@ -244,6 +257,160 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         return parseInt(str.replace(/,/g, '')) || 0;
     }
 
+    // Detect ranking outcome from faction name for winner/loser determination
+    function detectRankingOutcome(factionName) {
+        if (!factionName || typeof factionName !== 'string') {
+            return null; // Cannot determine
+        }
+
+        const lowerName = factionName.toLowerCase();
+        if (lowerName.includes('ranked down')) {
+            return 'loser';
+        } else if (lowerName.includes('ranked up') || lowerName.includes('remained at')) {
+            return 'winner';
+        }
+
+        return null; // Cannot determine
+    }
+
+    // Create dismissible info box for when no pricing is available
+    function createNoPricingInfoBox() {
+        const colors = getThemeColors();
+        const mobile = isMobile();
+
+        const infoBox = document.createElement('div');
+        infoBox.id = 'rw-no-pricing-info';
+        infoBox.style.cssText = `
+            background: ${colors.statBoxBg};
+            border: 1px solid ${colors.primary};
+            border-radius: 6px;
+            padding: ${mobile ? '12px' : '16px'};
+            margin: 15px 0;
+            position: relative;
+            box-shadow: ${colors.statBoxShadow};
+        `;
+
+        // Close button (X)
+        const closeButton = document.createElement('span');
+        closeButton.style.cssText = `
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            font-size: 18px;
+            font-weight: bold;
+            color: ${colors.textMuted};
+            cursor: pointer;
+            user-select: none;
+            line-height: 1;
+        `;
+        closeButton.innerHTML = mobile ? '&#215;' : '×';
+        closeButton.title = 'Dismiss this message';
+
+        // Close functionality
+        closeButton.addEventListener('click', function() {
+            infoBox.remove();
+            // Remember dismissal
+            if (typeof(Storage) !== "undefined") {
+                localStorage.setItem('rw_no_pricing_info_dismissed', 'true');
+            }
+        });
+
+        // Info content
+        const content = document.createElement('div');
+        content.style.cssText = `
+            color: ${colors.textPrimary};
+            font-size: ${mobile ? '11px' : '12px'};
+            line-height: 1.4;
+        `;
+
+        // Title
+        const title = document.createElement('div');
+        title.style.cssText = `
+            font-weight: bold;
+            margin-bottom: 8px;
+            color: ${colors.primary};
+            font-size: ${mobile ? '13px' : '14px'};
+        `;
+        title.textContent = 'No Pricing Configured';
+
+        // Message content container
+        const message = document.createElement('div');
+
+        // Description text
+        const description = document.createElement('div');
+        description.style.marginBottom = '8px';
+        description.textContent = 'Cache reward values are not being calculated as no pricing sources are configured.';
+
+        // "To see reward values:" text
+        const instructionHeader = document.createElement('div');
+        instructionHeader.style.cssText = `font-weight: bold; margin-bottom: 4px;`;
+        instructionHeader.textContent = 'To see reward values:';
+
+        // Bullet points container
+        const bulletPoints = document.createElement('div');
+
+        // First bullet point - Price List
+        const bullet1 = document.createElement('div');
+        bullet1.style.marginBottom = '2px';
+        bullet1.innerHTML = (mobile ? '&#8226; ' : '• ') + 'Configure custom prices using ';
+
+        const priceListLink = document.createElement('span');
+        priceListLink.textContent = 'Price List';
+        priceListLink.style.cssText = `
+            color: ${colors.primary};
+        `;
+
+        bullet1.appendChild(priceListLink);
+        bullet1.innerHTML += ', and/or';
+
+        // Second bullet point - Settings
+        const bullet2 = document.createElement('div');
+        bullet2.innerHTML = (mobile ? '&#8226; ' : '• ') + 'Enable market values in ';
+
+        const settingsLink = document.createElement('span');
+        settingsLink.textContent = 'Settings';
+        settingsLink.style.cssText = `
+            color: ${colors.primary};
+        `;
+
+        bullet2.appendChild(settingsLink);
+        bullet2.innerHTML += ' (Public API key)';
+
+        bulletPoints.appendChild(bullet1);
+        bulletPoints.appendChild(bullet2);
+
+        message.appendChild(description);
+        message.appendChild(instructionHeader);
+        message.appendChild(bulletPoints);
+
+        content.appendChild(title);
+        content.appendChild(message);
+        infoBox.appendChild(closeButton);
+        infoBox.appendChild(content);
+
+        return infoBox;
+    }
+
+    // Check if no pricing info box should be shown
+    function shouldShowNoPricingInfo() {
+        // Don't show if user has dismissed it
+        if (typeof(Storage) !== "undefined") {
+            const dismissed = localStorage.getItem('rw_no_pricing_info_dismissed');
+            if (dismissed === 'true') {
+                return false;
+            }
+        }
+
+        // Show if no valid API key AND no custom prices configured
+        const hasValidApiKey = (API_KEY && API_KEY !== 'YOUR_API_KEY_HERE') || PDA_VALIDATED;
+        const hasCustomPrices = SETTINGS.showCustomPrices && sellerData.sellers.some(seller =>
+            Object.values(seller.prices).some(price => price > 0)
+        );
+
+        // Hide info box if user has either a valid API key OR configured custom prices
+        return !hasValidApiKey && !hasCustomPrices;
+    }
+
     // ========================================
     // SETTINGS & DATA PERSISTENCE
     // ========================================
@@ -280,6 +447,17 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 console.log('RW: PDA State - No validation flag in localStorage, PDA_MODE:', PDA_MODE);
             }
 
+            // Load API price cache from localStorage
+            const savedApiCache = localStorage.getItem('rw_api_price_cache');
+            if (savedApiCache) {
+                try {
+                    apiPriceCache = JSON.parse(savedApiCache);
+                    console.log('RW: Loaded API price cache from localStorage:', apiPriceCache);
+                } catch (e) {
+                    console.log('RW: Could not load API price cache from localStorage');
+                }
+            }
+
             // Load seller data with migration support
             const savedSellers = localStorage.getItem('rw_seller_data');
             if (savedSellers) {
@@ -288,22 +466,6 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                     if (parsed && parsed.sellers && Array.isArray(parsed.sellers)) {
                         sellerData = parsed;
 
-                        // Migrate existing users from 3 to 10 sellers
-                        if (sellerData.sellers.length < 10) {
-                            console.log('RW: Migrating seller data from', sellerData.sellers.length, 'to 10 sellers');
-
-                            // Add missing sellers
-                            for (let i = sellerData.sellers.length; i < 10; i++) {
-                                sellerData.sellers.push({
-                                    name: "Seller " + (i + 1),
-                                    prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 }
-                                });
-                            }
-
-                            // Save the migrated data
-                            saveSettings();
-                            console.log('RW: Migration complete - now have', sellerData.sellers.length, 'sellers');
-                        }
 
                         console.log('RW: Loaded seller data:', sellerData);
                     }
@@ -337,6 +499,15 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             // Save seller data
             localStorage.setItem('rw_seller_data', JSON.stringify(sellerData));
             console.log('RW: Saved seller data to localStorage');
+
+            // Clear no-pricing info dismissal if pricing is now configured
+            const hasApiValues = SETTINGS.showApiValues && apiPriceCache.data && Object.keys(apiPriceCache.data).length > 0;
+            const hasCustomPrices = SETTINGS.showCustomPrices && sellerData.sellers.some(seller =>
+                Object.values(seller.prices).some(price => price > 0)
+            );
+            if (hasApiValues || hasCustomPrices) {
+                localStorage.removeItem('rw_no_pricing_info_dismissed');
+            }
         }
     }
 
@@ -375,7 +546,27 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     // Get current seller's custom price for an item
     function getCustomPrice(cacheType) {
         const seller = sellerData.sellers[sellerData.activeSeller];
-        return seller.prices[cacheType] || 0;
+        const priceValue = seller.prices[cacheType] || 0;
+
+        if (priceValue === 0) return 0;
+
+        // Handle relative pricing mode
+        if (seller.pricingMode === 'relative') {
+            // Calculate actual price from percentage of API price
+            if (apiPriceCache.data && apiPriceCache.data[cacheType]) {
+                const apiPrice = apiPriceCache.data[cacheType];
+                const calculatedPrice = Math.round(apiPrice * (priceValue / 100));
+                console.log(`RW: Relative pricing - ${cacheType}: ${priceValue}% of ${apiPrice} = ${calculatedPrice}`);
+                return calculatedPrice;
+            } else {
+                // No API price available for calculation
+                console.log(`RW: Relative pricing - ${cacheType}: No API price available for ${priceValue}%`);
+                return 0;
+            }
+        } else {
+            // Fixed pricing mode - return as-is
+            return priceValue;
+        }
     }
 
     // Check if API cache needs refreshing based on GMT timing
@@ -404,13 +595,13 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     }
 
     // Function to update API price cache
-    async function updateApiPriceCache() {
+    async function updateApiPriceCache(forceRefresh = false) {
         const currentApiKey = getApiKey();
 
         if (!currentApiKey || currentApiKey === 'YOUR_API_KEY_HERE') return false;
 
-        // Check if we need to refresh the cache
-        if (!shouldRefreshApiCache()) {
+        // Check if we need to refresh the cache (skip check if forced)
+        if (!forceRefresh && !shouldRefreshApiCache()) {
             console.log('RW: Using cached API prices (still fresh)');
             return true; // We have fresh data
         }
@@ -425,6 +616,13 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                     lastFetched: new Date().toISOString(),
                     data: result.prices
                 };
+
+                // Save to localStorage for persistence across page refreshes
+                if (typeof(Storage) !== "undefined") {
+                    localStorage.setItem('rw_api_price_cache', JSON.stringify(apiPriceCache));
+                    console.log('RW: Saved API price cache to localStorage');
+                }
+
                 console.log('RW: Updated API price cache:', apiPriceCache);
                 return true;
             } else {
@@ -447,7 +645,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             const timeout = options.timeout || 10000;
 
             if (PDA_MODE && typeof window.PDA_httpGet === 'function') {
-                // console.log('RW: Using PDA API request for:', url); // Commented out for security
+                if (DEBUG_MODE) console.log('RW: Using PDA API request for:', url);
                 console.log('RW: Using PDA API request');
                 try {
                     // Set up timeout for PDA requests
@@ -485,27 +683,59 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                     resolve({ success: false, error: 'PDA API request failed. Please ensure your API key is properly connected to PDA and try again.' });
                 }
             } else {
-                // console.log('RW: Using GM API request for:', url); // Commented out for security
-                console.log('RW: Using GM API request');
-                GM.xmlHttpRequest({
-                    method: 'GET',
-                    url: url,
-                    timeout: timeout,
-                    onload: function(response) {
-                        try {
-                            const data = JSON.parse(response.responseText);
-                            resolve({ success: true, data: data });
-                        } catch (error) {
-                            resolve({ success: false, error: 'Invalid response from API' });
+                // Check if GM.xmlHttpRequest is available, otherwise use fetch
+                if (typeof GM !== 'undefined' && typeof GM.xmlHttpRequest === 'function') {
+                    if (DEBUG_MODE) console.log('RW: Using GM API request for:', url);
+                    console.log('RW: Using GM API request');
+                    GM.xmlHttpRequest({
+                        method: 'GET',
+                        url: url,
+                        timeout: timeout,
+                        onload: function(response) {
+                            try {
+                                const data = JSON.parse(response.responseText);
+                                resolve({ success: true, data: data });
+                            } catch (error) {
+                                resolve({ success: false, error: 'Invalid response from API' });
+                            }
+                        },
+                        onerror: function() {
+                            resolve({ success: false, error: 'Network error' });
+                        },
+                        ontimeout: function() {
+                            resolve({ success: false, error: 'Request timed out' });
                         }
-                    },
-                    onerror: function() {
-                        resolve({ success: false, error: 'Network error' });
-                    },
-                    ontimeout: function() {
-                        resolve({ success: false, error: 'Request timed out' });
-                    }
-                });
+                    });
+                } else {
+                    // Fallback to fetch API
+                    console.log('RW: GM not available, using fetch API');
+
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), timeout);
+
+                    fetch(url, {
+                        signal: controller.signal,
+                        method: 'GET'
+                    })
+                    .then(response => {
+                        clearTimeout(timeoutId);
+                        if (!response.ok) {
+                            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        resolve({ success: true, data: data });
+                    })
+                    .catch(error => {
+                        clearTimeout(timeoutId);
+                        if (error.name === 'AbortError') {
+                            resolve({ success: false, error: 'Request timed out' });
+                        } else {
+                            resolve({ success: false, error: error.message || 'Network error' });
+                        }
+                    });
+                }
             }
         });
     }
@@ -525,7 +755,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 console.log('RW: Testing PDA API key');
                 // Use the complete URL constant that PDA should have processed
                 const url = PDA_USER_API_URL;
-                // console.log('RW: PDA API URL (key should be replaced):', url); // Commented out for security
+                if (DEBUG_MODE) console.log('RW: PDA API URL (key should be replaced):', url);
 
                 try {
                     const result = await makeApiRequest(url, { timeout: 15000 });
@@ -800,7 +1030,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     function refreshRewardDisplay() {
         // If we have stored raw data, recalculate with current seller prices AND API values
         if (rawRewardData && rawRewardData.length === 2) {
-            console.log("RWAwardValue: Recalculating with stored data, current seller prices, and API values");
+            if (DEBUG_MODE) console.log("RWAwardValue: Recalculating with stored data, current seller prices, and API values");
             console.log("RWAwardValue: Using seller:", sellerData.sellers[sellerData.activeSeller].name);
             console.log("RWAwardValue: API cache available:", Object.keys(apiPriceCache).length > 0);
 
@@ -815,7 +1045,20 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
                     if (item.type === 'cache') {
                         const customPrice = getCustomPrice(item.cacheType);
-                        const baseValue = customPrice > 0 ? customPrice : item.defaultValue;
+                        const hasCustomPrice = customPrice > 0;
+                        const hasApiPrice = apiPriceCache.data && apiPriceCache.data[item.cacheType];
+                        const hasValidApiKey = (API_KEY && API_KEY !== 'YOUR_API_KEY_HERE') || PDA_VALIDATED;
+
+                        let baseValue = 0;
+                        // Use same logic as initial calculation
+                        if (SETTINGS.showCustomPrices && hasCustomPrice) {
+                            baseValue = customPrice;
+                        } else if (hasApiPrice && hasValidApiKey) {
+                            baseValue = apiPriceCache.data[item.cacheType];
+                        } else {
+                            baseValue = 0; // Show "?" instead of old defaults
+                        }
+
                         itemValue = baseValue * item.quantity;
 
                         console.log('RWAwardValue: ' + item.cacheType + ' - custom: ' + customPrice + ', using: ' + baseValue + ', quantity: ' + item.quantity + ', total: ' + itemValue);
@@ -824,7 +1067,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                         if (SETTINGS.showApiValues && apiPriceCache.data[item.cacheType]) {
                             apiValue = apiPriceCache.data[item.cacheType] * item.quantity;
                             apiTotalValue += apiValue;
-                            console.log('RWAwardValue: ' + item.cacheType + ' API: ' + apiPriceCache.data[item.cacheType] + ' * ' + item.quantity + ' = ' + apiValue);
+                            if (DEBUG_MODE) console.log('RWAwardValue: ' + item.cacheType + ' API: ' + apiPriceCache.data[item.cacheType] + ' * ' + item.quantity + ' = ' + apiValue);
                         }
 
                         // Store individual item calculations for dropdown details
@@ -846,7 +1089,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 rewardData[index].totalValue = newTotalValue;
                 rewardData[index].apiTotalValue = apiTotalValue; // Store API total for display
 
-                console.log('RWAwardValue: ' + rawReward.factionName + ' new total: ' + newTotalValue + ', API total: ' + apiTotalValue);
+                if (DEBUG_MODE) console.log('RWAwardValue: ' + rawReward.factionName + ' new total: ' + newTotalValue + ', API total: ' + apiTotalValue);
             });
         }
 
@@ -917,6 +1160,20 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
         console.log("RWAwardValue: Created panel container with proper spacing");
 
+        // Add trader selector first (above all containers) - only if custom prices are enabled
+        if (SETTINGS.showCustomPrices) {
+            const traderSelector = createTraderSelector();
+            if (traderSelector) {
+                panelContainer.appendChild(traderSelector);
+            }
+        }
+
+        // Add info box if no pricing sources are configured
+        if (shouldShowNoPricingInfo()) {
+            const infoBox = createNoPricingInfoBox();
+            panelContainer.appendChild(infoBox);
+        }
+
         // Create individual reward containers
         for (let i = 0; i < 2; i++) {
             console.log("RWAwardValue: Creating container for reward", i);
@@ -924,7 +1181,8 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 rewardData[i].totalValue,
                 i,
                 grandTotalValue,
-                rewardData[i].factionName
+                rewardData[i].factionName,
+                rewardData // Pass all faction data for ranking analysis
             );
 
             // Add click listener for expansion
@@ -946,7 +1204,6 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
                 // Create fresh item elements with current calculations
                 rawRewardData[i].items.forEach(function(item) {
-                    if (item.calculatedValue > 0) {
                         const itemDiv = document.createElement('div');
                         itemDiv.style.background = detailColors.statBoxBg;
                         itemDiv.style.padding = isMobileView ? '8px' : '10px';
@@ -1017,18 +1274,26 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                                 // Desktop: Single line layout (unchanged)
                                 const individualPrice = item.calculatedValue / item.quantity;
                                 if (item.quantity === 1) {
-                                    itemName = '1x ' + cacheTypeName + ' Cache (' + formatNumberWithCommas(individualPrice) + ')';
+                                    if (individualPrice > 0 && !isNaN(individualPrice)) {
+                                        itemName = '1x ' + cacheTypeName + ' Cache (' + formatNumberWithCommas(individualPrice) + ')';
+                                    } else {
+                                        itemName = '1x ' + cacheTypeName + ' Cache';
+                                    }
                                 } else {
-                                    itemName = item.quantity + 'x ' + cacheTypeName + ' Cache (' + item.quantity + 'x ' + formatNumberWithCommas(individualPrice) + ')';
+                                    if (individualPrice > 0 && !isNaN(individualPrice)) {
+                                        itemName = item.quantity + 'x ' + cacheTypeName + ' Cache (' + item.quantity + 'x ' + formatNumberWithCommas(individualPrice) + ')';
+                                    } else {
+                                        itemName = item.quantity + 'x ' + cacheTypeName + ' Cache';
+                                    }
                                 }
                             }
                         } else if (item.type === 'points') {
                             if (isMobileView) {
                                 // Mobile: Keep points simple since they don't have complex breakdown
-                                itemName = item.quantity.toLocaleString() + ' points<br><span style="font-size: 11px; color: ' + detailColors.textMuted + ';">(' + numberFormatter(item.calculatedValue) + ' total)</span>';
+                                itemName = item.quantity.toLocaleString() + ' points<br><span style="font-size: 11px; color: ' + detailColors.textMuted + ';">(' + (item.calculatedValue > 0 ? numberFormatter(item.calculatedValue) : '?') + ' total)</span>';
                             } else {
                                 // Desktop: Single line (unchanged)
-                                itemName = item.quantity.toLocaleString() + ' points (' + numberFormatter(item.calculatedValue) + ' total)';
+                                itemName = item.quantity.toLocaleString() + ' points (' + (item.calculatedValue > 0 ? numberFormatter(item.calculatedValue) : '?') + ' total)';
                             }
                         }
                         nameSpan.innerHTML = itemName; // Use innerHTML for mobile line breaks
@@ -1092,7 +1357,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                         const valueSpan = document.createElement('span');
                         valueSpan.style.color = detailColors.primary;
                         valueSpan.style.fontWeight = 'bold';
-                        valueSpan.textContent = numberFormatter(item.calculatedValue, 2);
+                        valueSpan.textContent = item.calculatedValue > 0 ? numberFormatter(item.calculatedValue, 2) : '?';
 
                         valueContainer.appendChild(valueSpan);
 
@@ -1102,7 +1367,6 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                         }
                         itemDiv.appendChild(valueContainer);
                         details.appendChild(itemDiv);
-                    }
                 });
             } else {
                 // Fallback to original method
@@ -1254,11 +1518,39 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         sellerSection.style.marginBottom = '20px';
 
         const sellerLabel = document.createElement('label');
-        sellerLabel.textContent = 'Active Buyer:';
+        sellerLabel.textContent = 'Active Trader:';
         sellerLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; color: ' + colors.textPrimary + ';';
 
         const sellerContainer = document.createElement('div');
         sellerContainer.style.cssText = 'display: flex; gap: 10px; align-items: center; margin-bottom: 10px;';
+
+        // Create last modified date display
+        const lastModifiedDiv = document.createElement('div');
+        lastModifiedDiv.style.cssText = 'font-size: 12px; color: ' + colors.textMuted + '; margin-bottom: 15px;';
+
+        function formatLastModified(dateString) {
+            if (!dateString) return 'Last modified: Unknown';
+
+            const date = new Date(dateString);
+            const now = new Date();
+            const diffTime = Math.abs(now - date);
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const formattedDate = date.getDate() + ' ' + months[date.getMonth()];
+
+            if (diffDays === 1) {
+                return 'Last modified: ' + formattedDate + ' (today)';
+            } else if (diffDays === 2) {
+                return 'Last modified: ' + formattedDate + ' (yesterday)';
+            } else {
+                return 'Last modified: ' + formattedDate + ' (' + (diffDays - 1) + ' days ago)';
+            }
+        }
+
+        const currentSeller = sellerData.sellers[sellerData.activeSeller];
+        lastModifiedDiv.textContent = formatLastModified(currentSeller.lastModified);
 
         const sellerSelect = document.createElement('select');
         sellerSelect.style.cssText = 'background: ' + colors.inputBg + '; border: 1px solid ' + colors.inputBorder + '; color: ' + colors.textPrimary + '; padding: 8px; border-radius: 4px; flex: 1;';
@@ -1281,7 +1573,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         nameInputContainer.style.cssText = 'display: none; margin-top: 10px;';
 
         const nameLabel = document.createElement('label');
-        nameLabel.textContent = 'Buyer Name (e.g. "John Doe [123456]"):';
+        nameLabel.textContent = 'Trader Name (e.g. "John Doe [123456]"):';
         nameLabel.style.cssText = 'display: block; margin-bottom: 5px; color: ' + colors.textSecondary + '; font-size: 12px;';
 
         const nameInputRow = document.createElement('div');
@@ -1321,7 +1613,133 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         sellerContainer.appendChild(editSellerBtn);
         sellerSection.appendChild(sellerLabel);
         sellerSection.appendChild(sellerContainer);
+        sellerSection.appendChild(lastModifiedDiv);
         sellerSection.appendChild(nameInputContainer);
+
+        // Add CSS for placeholder styling
+        const styleId = 'rw-placeholder-styles';
+        if (!document.getElementById(styleId)) {
+            const style = document.createElement('style');
+            style.id = styleId;
+            style.textContent = `
+                .rw-relative-input::placeholder {
+                    color: #999 !important;
+                    opacity: 1 !important;
+                    font-style: italic !important;
+                }
+                .rw-relative-input::-webkit-input-placeholder {
+                    color: #999 !important;
+                    opacity: 1 !important;
+                    font-style: italic !important;
+                }
+                .rw-relative-input::-moz-placeholder {
+                    color: #999 !important;
+                    opacity: 1 !important;
+                    font-style: italic !important;
+                }
+            `;
+            document.head.appendChild(style);
+        }
+
+        // Create pricing mode toggle
+        const pricingModeSection = document.createElement('div');
+        pricingModeSection.style.cssText = 'margin-bottom: 20px;';
+
+        const pricingModeLabel = document.createElement('label');
+        pricingModeLabel.textContent = 'Pricing Mode:';
+        pricingModeLabel.style.cssText = 'display: block; margin-bottom: 8px; font-weight: bold; color: ' + colors.textPrimary + ';';
+
+        // Create horizontal toggle
+        const toggleContainer = document.createElement('div');
+        const toggleBg = currentTheme === 'light' ? '#e8e8e8' : colors.inputBg;
+        toggleContainer.style.cssText = `
+            display: flex;
+            background: ${toggleBg};
+            border: 1px solid ${colors.inputBorder};
+            border-radius: 6px;
+            overflow: hidden;
+            width: 100%;
+        `;
+
+        const isRelativeMode = currentSeller.pricingMode === 'relative';
+
+        // Fixed prices option
+        const fixedOption = document.createElement('div');
+        fixedOption.style.cssText = `
+            flex: 1;
+            padding: 9px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: ${!isRelativeMode ? colors.primary : 'transparent'};
+            color: ${!isRelativeMode ? 'white' : colors.textPrimary};
+            font-weight: ${!isRelativeMode ? 'bold' : 'normal'};
+        `;
+        fixedOption.textContent = 'Fixed Prices';
+
+        // Relative prices option
+        const relativeOption = document.createElement('div');
+        relativeOption.style.cssText = `
+            flex: 1;
+            padding: 9px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            background: ${isRelativeMode ? colors.primary : 'transparent'};
+            color: ${isRelativeMode ? 'white' : colors.textPrimary};
+            font-weight: ${isRelativeMode ? 'bold' : 'normal'};
+        `;
+        relativeOption.textContent = 'Relative Prices';
+
+        toggleContainer.appendChild(fixedOption);
+        toggleContainer.appendChild(relativeOption);
+        pricingModeSection.appendChild(pricingModeLabel);
+        pricingModeSection.appendChild(toggleContainer);
+
+        // Function to update toggle styles
+        function updateToggleStyles() {
+            const activeSeller = sellerData.sellers[sellerData.activeSeller];
+            const isRelative = activeSeller.pricingMode === 'relative';
+
+            if (DEBUG_MODE) console.log('RW: Updating toggle for seller', sellerData.activeSeller, 'mode:', activeSeller.pricingMode);
+
+            fixedOption.style.background = !isRelative ? colors.primary : 'transparent';
+            fixedOption.style.color = !isRelative ? 'white' : colors.textPrimary;
+            fixedOption.style.fontWeight = !isRelative ? 'bold' : 'normal';
+
+            relativeOption.style.background = isRelative ? colors.primary : 'transparent';
+            relativeOption.style.color = isRelative ? 'white' : colors.textPrimary;
+            relativeOption.style.fontWeight = isRelative ? 'bold' : 'normal';
+        }
+
+        // Click handlers for toggle
+        fixedOption.addEventListener('click', function() {
+            const currentSeller = sellerData.sellers[sellerData.activeSeller];
+            if (currentSeller.pricingMode !== 'fixed') {
+                // Clear prices when switching modes to prevent confusion
+                cacheTypes.forEach(function(cache) {
+                    currentSeller.prices[cache.key] = 0;
+                });
+                currentSeller.pricingMode = 'fixed';
+                updateToggleStyles();
+                updateInputDisplayMode();
+                saveSettings();
+            }
+        });
+
+        relativeOption.addEventListener('click', function() {
+            const currentSeller = sellerData.sellers[sellerData.activeSeller];
+            if (currentSeller.pricingMode !== 'relative') {
+                // Clear prices when switching modes to prevent confusion
+                cacheTypes.forEach(function(cache) {
+                    currentSeller.prices[cache.key] = 0;
+                });
+                currentSeller.pricingMode = 'relative';
+                updateToggleStyles();
+                updateInputDisplayMode();
+                saveSettings();
+            }
+        });
 
         // Create price inputs
         const pricesSection = document.createElement('div');
@@ -1337,6 +1755,41 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
         const priceInputs = {};
 
+        // Function to update input display mode
+        function updateInputDisplayMode() {
+            const activeSeller = sellerData.sellers[sellerData.activeSeller];
+            const isRelative = activeSeller.pricingMode === 'relative';
+
+            if (DEBUG_MODE) console.log('RW: Updating input mode for seller', sellerData.activeSeller, 'mode:', activeSeller.pricingMode);
+
+            cacheTypes.forEach(function(cache, index) {
+                const input = priceInputs[cache.key];
+                if (input) {
+                    if (isRelative) {
+                        // Convert to percentage display (add % suffix, show as percentage)
+                        const value = activeSeller.prices[cache.key];
+                        input.value = value > 0 ? value + '%' : '%';
+                        input.style.textAlign = 'center';
+                        // Add placeholder only to first field (Armor Cache) and CSS class
+                        if (index === 0) {
+                            input.placeholder = 'e.g. 95';
+                            input.classList.add('rw-relative-input');
+                        } else {
+                            input.placeholder = '';
+                            input.classList.add('rw-relative-input');
+                        }
+                    } else {
+                        // Convert to fixed price display (remove % suffix, format as currency)
+                        const value = activeSeller.prices[cache.key];
+                        input.value = value > 0 ? formatNumberWithCommas(value) : '';
+                        input.style.textAlign = 'center';
+                        input.placeholder = '';
+                        input.classList.remove('rw-relative-input');
+                    }
+                }
+            });
+        }
+
         cacheTypes.forEach(function(cache) {
             const row = document.createElement('div');
             row.style.cssText = 'display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;';
@@ -1347,21 +1800,56 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
             const input = document.createElement('input');
             input.type = 'text';
-            input.value = formatNumberWithCommas(sellerData.sellers[sellerData.activeSeller].prices[cache.key]);
-            input.style.cssText = 'background: ' + colors.inputBg + '; border: 1px solid ' + colors.inputBorder + '; color: ' + colors.textPrimary + '; padding: 8px; border-radius: 4px; width: 60%; text-align: right;';
+            input.style.cssText = 'background: ' + colors.inputBg + '; border: 1px solid ' + colors.inputBorder + '; color: ' + colors.textPrimary + '; padding: 8px; border-radius: 4px; width: 60%; text-align: center;';
 
-            // Add real-time comma formatting
+            // Set initial value based on pricing mode
+            const currentSeller = sellerData.sellers[sellerData.activeSeller];
+            const isRelative = currentSeller.pricingMode === 'relative';
+            if (isRelative) {
+                const value = currentSeller.prices[cache.key];
+                input.value = value > 0 ? value + '%' : '%';
+                input.style.textAlign = 'center';
+                // Add placeholder only to first field (Armor Cache) and CSS class
+                input.placeholder = cache.key === 'armorCache' ? 'e.g. 95' : '';
+                input.classList.add('rw-relative-input');
+            } else {
+                input.value = formatNumberWithCommas(currentSeller.prices[cache.key]);
+                input.style.textAlign = 'center';
+                input.placeholder = '';
+            }
+
+            // Dynamic input formatting based on pricing mode
             input.addEventListener('input', function() {
-                const cursorPosition = input.selectionStart;
-                const oldValue = input.value;
-                const numericValue = input.value.replace(/[^0-9]/g, '');
-                const formattedValue = numericValue ? formatNumberWithCommas(parseInt(numericValue)) : '';
+                const currentSeller = sellerData.sellers[sellerData.activeSeller];
+                const isRelative = currentSeller.pricingMode === 'relative';
 
-                if (formattedValue !== oldValue) {
-                    input.value = formattedValue;
-                    // Adjust cursor position after formatting
-                    const newCursorPosition = cursorPosition + (formattedValue.length - oldValue.length);
-                    input.setSelectionRange(newCursorPosition, newCursorPosition);
+                if (isRelative) {
+                    // Handle percentage input with permanent % symbol
+                    let value = input.value.replace(/[^0-9.]/g, ''); // Extract only numbers and decimals
+                    if (value) {
+                        const numValue = parseFloat(value);
+                        if (!isNaN(numValue)) {
+                            // Cap at 999% to prevent 4-digit percentages
+                            const cappedValue = Math.min(numValue, 999);
+                            input.value = cappedValue + '%';
+                        }
+                    } else {
+                        // Always maintain % symbol even when empty
+                        input.value = '%';
+                    }
+                } else {
+                    // Handle fixed price input with comma formatting
+                    const cursorPosition = input.selectionStart;
+                    const oldValue = input.value;
+                    const numericValue = input.value.replace(/[^0-9]/g, '');
+                    const formattedValue = numericValue ? formatNumberWithCommas(parseInt(numericValue)) : '';
+
+                    if (formattedValue !== oldValue) {
+                        input.value = formattedValue;
+                        // Adjust cursor position after formatting
+                        const newCursorPosition = cursorPosition + (formattedValue.length - oldValue.length);
+                        input.setSelectionRange(newCursorPosition, newCursorPosition);
+                    }
                 }
             });
 
@@ -1382,7 +1870,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         clearConfirmationSection.style.cssText = 'display: none; margin-top: 15px; padding: 15px; background: ' + colors.panelBg + '; border: 1px solid ' + colors.danger + '; border-radius: 4px;';
 
         const clearConfirmText = document.createElement('div');
-        clearConfirmText.textContent = 'Reset all buyers to default? This will clear all custom buyer names and prices.';
+        clearConfirmText.textContent = 'Reset all traders to default? This will clear all custom trader names and prices.';
         clearConfirmText.style.cssText = 'color: ' + colors.textPrimary + '; margin-bottom: 10px; font-size: 14px;';
 
         const clearConfirmButtons = document.createElement('div');
@@ -1407,14 +1895,14 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         deleteConfirmationSection.style.cssText = 'display: none; margin-top: 15px; padding: 15px; background: ' + colors.panelBg + '; border: 1px solid ' + colors.danger + '; border-radius: 4px;';
 
         const deleteConfirmText = document.createElement('div');
-        deleteConfirmText.textContent = 'Delete this buyer configuration? This will reset name and set prices to zero.';
+        deleteConfirmText.textContent = 'Delete this trader configuration? This will reset name and set prices to zero.';
         deleteConfirmText.style.cssText = 'color: ' + colors.textPrimary + '; margin-bottom: 10px; font-size: 14px;';
 
         const deleteConfirmButtons = document.createElement('div');
         deleteConfirmButtons.style.cssText = 'display: flex; gap: 10px;';
 
         const deleteConfirmYes = document.createElement('button');
-        deleteConfirmYes.textContent = mobile ? 'Delete Buyer' : 'Yes, Delete Buyer';
+        deleteConfirmYes.textContent = mobile ? 'Delete Trader' : 'Yes, Delete Trader';
         deleteConfirmYes.style.cssText = 'background: ' + colors.danger + '; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; flex: 1; font-size: ' + (mobile ? '11px' : '12px') + ';';
 
         const deleteConfirmNo = document.createElement('button');
@@ -1431,7 +1919,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         copyFromApiBtn.style.cssText = 'background: #454545; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; flex: 1; font-size: ' + (mobile ? '11px' : '12px') + ';';
 
         const deleteBtn = document.createElement('button');
-        deleteBtn.textContent = mobile ? 'Delete' : 'Delete Buyer';
+        deleteBtn.textContent = mobile ? 'Delete' : 'Delete Trader';
         deleteBtn.style.cssText = 'background: ' + colors.danger + '; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; flex: 1; font-size: ' + (mobile ? '11px' : '12px') + ';';
 
         const saveBtn = document.createElement('button');
@@ -1439,7 +1927,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         saveBtn.style.cssText = 'background: ' + colors.success + '; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; flex: 1; font-size: ' + (mobile ? '11px' : '12px') + ';';
 
         const clearSellersBtn = document.createElement('button');
-        clearSellersBtn.textContent = mobile ? 'Clear All' : 'Clear All Buyers';
+        clearSellersBtn.textContent = mobile ? 'Clear All' : 'Clear All Traders';
         clearSellersBtn.style.cssText = 'background: ' + colors.danger + '; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; flex: 1; font-size: ' + (mobile ? '11px' : '12px') + ';';
 
         buttonSection.appendChild(copyFromApiBtn);
@@ -1456,8 +1944,8 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             nameInput.value = currentName || '';
             nameInputContainer.style.display = 'block';
             nameLabel.textContent = isEdit ?
-                'Edit Buyer Name e.g. \'John Doe [123456]\'' :
-                'New Buyer Name e.g. \'John Doe [123456]\'';
+                'Edit Trader Name e.g. \'John Doe [123456]\'' :
+                'New Trader Name e.g. \'John Doe [123456]\'';
             nameInput.focus();
         }
 
@@ -1477,7 +1965,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         saveNameBtn.addEventListener('click', function() {
             const name = nameInput.value.trim();
             if (!name) {
-                alert('Please enter a seller name');
+                alert('Please enter a trader name');
                 return;
             }
 
@@ -1494,6 +1982,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 // Add new seller
                 sellerData.sellers.push({
                     name: name,
+                    pricingMode: "fixed",
                     prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 }
                 });
 
@@ -1532,10 +2021,14 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
         sellerSelect.onchange = function() {
             sellerData.activeSeller = parseInt(sellerSelect.value);
-            // Update input values
-            cacheTypes.forEach(function(cache) {
-                priceInputs[cache.key].value = formatNumberWithCommas(sellerData.sellers[sellerData.activeSeller].prices[cache.key]);
-            });
+
+            // Update toggle styles and input display mode
+            updateToggleStyles();
+            updateInputDisplayMode();
+
+            // Update last modified date display
+            const newSeller = sellerData.sellers[sellerData.activeSeller];
+            lastModifiedDiv.textContent = formatLastModified(newSeller.lastModified);
             // Hide name input if open
             hideNameInput();
             // Save the active seller change
@@ -1551,13 +2044,13 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 // Find seller spans and update them
                 const sellerSpans = container.querySelectorAll('span[style*="margin-left: 16px"]');
                 sellerSpans.forEach(function(span) {
-                    if (span.textContent.includes('Buyer:')) {
+                    if (span.textContent.includes('Trader:')) {
                         const currentSeller = sellerData.sellers[sellerData.activeSeller];
                         const userInfo = extractUserInfo(currentSeller.name);
 
                         // Clear existing content
                         span.innerHTML = '';
-                        span.textContent = 'Buyer: ' + userInfo.name;
+                        span.textContent = 'Trader: ' + userInfo.name;
 
                         // Re-add profile link if exists
                         if (userInfo.hasId) {
@@ -1573,22 +2066,44 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         saveBtn.onclick = function() {
             console.log('RW: Save button clicked');
 
-            // Save current prices
+            // Save current prices and track if any changed
+            let pricesChanged = false;
+            const currentSeller = sellerData.sellers[sellerData.activeSeller];
+            const isRelative = currentSeller.pricingMode === 'relative';
+
             cacheTypes.forEach(function(cache) {
-                const oldPrice = sellerData.sellers[sellerData.activeSeller].prices[cache.key];
-                const newPrice = parseCommaNumber(priceInputs[cache.key].value);
-                sellerData.sellers[sellerData.activeSeller].prices[cache.key] = newPrice;
+                const oldPrice = currentSeller.prices[cache.key];
+                let newPrice = 0;
+
+                if (isRelative) {
+                    // Parse percentage value (remove % and parse as decimal)
+                    const percentValue = priceInputs[cache.key].value.replace('%', '').trim();
+                    newPrice = percentValue ? parseFloat(percentValue) : 0;
+                } else {
+                    // Parse fixed price value (remove commas)
+                    newPrice = parseCommaNumber(priceInputs[cache.key].value);
+                }
+
+                currentSeller.prices[cache.key] = newPrice;
 
                 if (oldPrice !== newPrice) {
-                    console.log('RW: Price changed for', cache.key, 'from', oldPrice, 'to', newPrice);
+                    if (DEBUG_MODE) console.log('RW: Price changed for', cache.key, 'from', oldPrice, 'to', newPrice, 'mode:', currentSeller.pricingMode);
+                    pricesChanged = true;
                 }
             });
+
+            // Update last modified date if any prices changed
+            if (pricesChanged) {
+                sellerData.sellers[sellerData.activeSeller].lastModified = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+            }
 
             // Save seller data to localStorage
             saveSettings();
 
-            console.log('RW: Saved new prices for', sellerData.sellers[sellerData.activeSeller].name);
-            console.log('RW: New prices:', sellerData.sellers[sellerData.activeSeller].prices);
+            if (DEBUG_MODE) {
+                console.log('RW: Saved new prices for', sellerData.sellers[sellerData.activeSeller].name);
+                console.log('RW: New prices:', sellerData.sellers[sellerData.activeSeller].prices);
+            }
 
             // Close panel and use full refresh (reliable)
             panel.style.maxHeight = '0';
@@ -1660,9 +2175,9 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             sellerData = {
                 activeSeller: 0,
                 sellers: [
-                    { name: "Seller 1", prices: { armorCache: 312400000, heavyArmsCache: 250000000, mediumArmsCache: 191000000, meleeCache: 139500000, smallArmsCache: 111400000 } },
-                    { name: "Seller 2", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
-                    { name: "Seller 3", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } }
+                    { name: "Trader 1", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+                    { name: "Trader 2", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } },
+                    { name: "Trader 3", prices: { armorCache: 0, heavyArmsCache: 0, mediumArmsCache: 0, meleeCache: 0, smallArmsCache: 0 } }
                 ]
             };
 
@@ -1693,7 +2208,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             const currentIndex = sellerData.activeSeller;
 
             // Determine the default name for this slot
-            const defaultNames = ["Seller 1", "Seller 2", "Seller 3", "Seller 4", "Seller 5", "Seller 6", "Seller 7", "Seller 8", "Seller 9", "Seller 10"];
+            const defaultNames = ["Trader 1", "Trader 2", "Trader 3", "Trader 4", "Trader 5", "Trader 6", "Trader 7", "Trader 8", "Trader 9", "Trader 10"];
             const defaultName = defaultNames[currentIndex] || "Seller " + (currentIndex + 1);
 
             // Reset seller to default state
@@ -1730,6 +2245,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         // Assemble panel
         panel.appendChild(header);
         panel.appendChild(sellerSection);
+        panel.appendChild(pricingModeSection);
         panel.appendChild(pricesSection);
         panel.appendChild(buttonSection);
         panel.appendChild(clearConfirmationSection);
@@ -1769,9 +2285,9 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         panel.id = 'rw-settings-panel';
         panel.style.cssText = 'background: ' + colors.configBg + '; border: none; border-radius: 0; padding: 15px; margin: 0; color: ' + colors.textPrimary + '; font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; box-shadow: 0 4px 8px rgba(0,0,0,0.15); position: relative; overflow: hidden; max-height: 0; transition: max-height 0.3s ease, padding 0.3s ease;';
 
-        // Animate in
+        // Animate in - increase height for PDA mode to accommodate extra info box
         setTimeout(function() {
-            panel.style.maxHeight = '500px';
+            panel.style.maxHeight = PDA_MODE ? '550px' : '500px';
         }, 10);
 
         // Create header
@@ -1793,7 +2309,11 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         closeBtn.onclick = function() {
             panel.style.maxHeight = '0';
             panel.style.padding = '0 15px';
-            setTimeout(function() { panel.remove(); }, 300);
+            setTimeout(function() {
+                panel.remove();
+                // Refresh the display to update info box visibility based on new settings
+                refreshRewardDisplay();
+            }, 300);
         };
 
         header.appendChild(title);
@@ -1825,6 +2345,11 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         keyInput.type = 'password';
         keyInput.value = API_KEY !== 'YOUR_API_KEY_HERE' ? API_KEY : '';
         keyInput.placeholder = 'Enter your Torn API key';
+        // Disable browser autocomplete/autofill to prevent login suggestions
+        // Note: These attributes only prevent browser behaviour such as autofill
+        keyInput.autocomplete = 'new-password'; // More effective than 'off' on mobile browsers
+        keyInput.spellcheck = false;
+        keyInput.setAttribute('data-form-type', 'other'); // Additional hint this isn't a login form
         keyInput.style.cssText = 'background: ' + colors.inputBg + '; border: 1px solid ' + colors.inputBorder + '; color: ' + colors.textPrimary + '; padding: 8px; border-radius: 4px; ' + (mobile ? 'width: 100%; margin-bottom: 0;' : 'flex: 1;');
 
         const buttonRow = document.createElement('div');
@@ -1900,11 +2425,87 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             keyContainer.appendChild(inputRow);
         }
 
+        // Create last retrieved info (moved up from API values section)
+        const lastRetrievedDiv = document.createElement('div');
+        lastRetrievedDiv.style.cssText = mobile ?
+            'margin-left: 0px; margin-top: 8px; font-size: 11px; color: ' + colors.textMuted + ';' :
+            'margin-left: 110px; margin-top: 4px; font-size: 11px; color: ' + colors.textMuted + ';';
+
+        function getLastRetrievedText() {
+            if (!apiPriceCache.lastFetched) return 'Last retrieved: Never';
+
+            const lastFetched = new Date(apiPriceCache.lastFetched);
+            const now = new Date();
+            const diffMs = now - lastFetched;
+            const diffMins = Math.floor(diffMs / (1000 * 60));
+            const diffHours = Math.floor(diffMins / 60);
+            const diffDays = Math.floor(diffHours / 24);
+
+            const timeString = lastFetched.toLocaleTimeString('en-US', {
+                hour: 'numeric',
+                minute: '2-digit',
+                hour12: true
+            });
+
+            if (diffDays === 0) {
+                return 'Last retrieved: Today at ' + timeString;
+            } else if (diffDays === 1) {
+                return 'Last retrieved: Yesterday at ' + timeString;
+            } else {
+                const day = lastFetched.getDate();
+                const month = lastFetched.toLocaleString('en-US', { month: 'short' });
+                return 'Last retrieved: ' + day + ' ' + month + ' at ' + timeString;
+            }
+        }
+
+        function updateLastRetrievedDisplay() {
+            const uniqueId = 'refresh-api-link-' + Date.now(); // Unique ID to avoid conflicts
+            lastRetrievedDiv.innerHTML = getLastRetrievedText() +
+                (apiPriceCache.lastFetched ?
+                    ' <span id="' + uniqueId + '" style="color: ' + colors.primary + '; cursor: pointer; text-decoration: underline;">Refresh</span>' :
+                    '');
+
+            // Add event listener for refresh link if it exists
+            const refreshLink = document.getElementById(uniqueId);
+            if (refreshLink) {
+                refreshLink.addEventListener('click', function() {
+                    console.log('RW: Manual API refresh requested');
+                    refreshLink.textContent = 'Loading...';
+                    refreshLink.style.cursor = 'wait';
+
+                    updateApiPriceCache(true).then(function(success) { // Force refresh for manual clicks
+                        if (success) {
+                            console.log('RW: Manual API refresh successful');
+                            updateLastRetrievedDisplay();
+                            refreshRewardDisplay();
+                        } else {
+                            console.log('RW: Manual API refresh failed');
+                            refreshLink.textContent = 'Failed';
+                            setTimeout(function() {
+                                updateLastRetrievedDisplay();
+                            }, 2000);
+                        }
+                    });
+                });
+            } else {
+                console.log('RW: Refresh link not found with ID:', uniqueId);
+            }
+        }
+
         apiSection.appendChild(apiTitle);
         apiSection.appendChild(keyContainer);
         if (!mobile) {
             apiSection.appendChild(statusDiv); // Status div positioned after keyContainer on desktop
+            apiSection.appendChild(lastRetrievedDiv); // Last retrieved positioned after status on desktop
+        } else {
+            // On mobile, add last retrieved inside keyContainer after all other elements
+            keyContainer.appendChild(lastRetrievedDiv);
         }
+
+        // Update the display after the element is in the DOM with a small delay
+        setTimeout(function() {
+            updateLastRetrievedDisplay();
+        }, 10);
 
         // Add PDA-specific instruction if detected - MOVED TO AFTER OTHER ELEMENTS
         if (PDA_MODE) {
@@ -1922,6 +2523,53 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         otherTitle.textContent = 'Other Settings';
         otherTitle.style.cssText = 'margin: 0 0 15px 0; color: ' + colors.textPrimary + '; font-size: 16px;';
 
+        // Custom Prices section
+        const customPricesSection = document.createElement('div');
+        customPricesSection.style.cssText = 'margin-bottom: 15px;';
+
+        const showCustomPricesCheck = document.createElement('div');
+        showCustomPricesCheck.style.cssText = 'display: flex; align-items: center; margin-bottom: 2px;';
+
+        const customPricesCheckbox = document.createElement('input');
+        customPricesCheckbox.type = 'checkbox';
+        customPricesCheckbox.checked = SETTINGS.showCustomPrices;
+        const customPricesCheckboxStyle = 'margin-right: 8px;' + (currentTheme === 'dark' ? ' accent-color: #74c0fc;' : '');
+        customPricesCheckbox.style.cssText = customPricesCheckboxStyle;
+
+        const customPricesLabel = document.createElement('label');
+        customPricesLabel.textContent = 'Show custom prices';
+        customPricesLabel.style.color = colors.textPrimary;
+        customPricesLabel.style.cursor = 'pointer';
+
+        // Make label clickable to toggle checkbox
+        customPricesLabel.addEventListener('click', function() {
+            customPricesCheckbox.checked = !customPricesCheckbox.checked;
+            // Trigger the change event to ensure all logic runs
+            customPricesCheckbox.dispatchEvent(new Event('change'));
+        });
+
+        // Handle checkbox change
+        customPricesCheckbox.addEventListener('change', function() {
+            SETTINGS.showCustomPrices = this.checked;
+            saveSettings();
+            // Update the "Show API alongside" checkbox state immediately
+            const customPricesEnabled = this.checked;
+            showCheckbox.disabled = !customPricesEnabled;
+            showLabel.style.color = customPricesEnabled ? colors.textPrimary : colors.textMuted;
+            showLabel.style.cursor = customPricesEnabled ? 'pointer' : 'not-allowed';
+
+            // If disabling custom prices, also disable the API alongside option
+            if (!customPricesEnabled) {
+                SETTINGS.showApiValues = false;
+                showCheckbox.checked = false;
+                saveSettings();
+            }
+        });
+
+        showCustomPricesCheck.appendChild(customPricesCheckbox);
+        showCustomPricesCheck.appendChild(customPricesLabel);
+        customPricesSection.appendChild(showCustomPricesCheck);
+
         // API Values section with combined checkbox and last retrieved
         const apiValuesSection = document.createElement('div');
         apiValuesSection.style.cssText = 'margin-bottom: 15px;';
@@ -1932,15 +2580,19 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         const showCheckbox = document.createElement('input');
         showCheckbox.type = 'checkbox';
         showCheckbox.checked = SETTINGS.showApiValues;
-        // Disable if no API key AND not in PDA mode
-        showCheckbox.disabled = (!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') && !PDA_MODE;
+        // Only disable if custom prices are not enabled (API key status is irrelevant for this comparison feature)
+        const customPricesDisabled = !SETTINGS.showCustomPrices;
+        showCheckbox.disabled = customPricesDisabled;
+
         const checkboxStyle = 'margin-right: 8px;' + (currentTheme === 'dark' ? ' accent-color: #74c0fc;' : '');
         showCheckbox.style.cssText = checkboxStyle;
 
         const showLabel = document.createElement('label');
         showLabel.textContent = 'Show API market values alongside custom prices';
-        showLabel.style.color = ((!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') && !PDA_MODE) ? colors.textMuted : colors.textPrimary;
-        showLabel.style.cursor = ((!API_KEY || API_KEY === 'YOUR_API_KEY_HERE') && !PDA_MODE) ? 'not-allowed' : 'pointer';
+
+        // Grey out if disabled for any reason
+        showLabel.style.color = showCheckbox.disabled ? colors.textMuted : colors.textPrimary;
+        showLabel.style.cursor = showCheckbox.disabled ? 'not-allowed' : 'pointer';
 
         // Make label clickable to toggle checkbox
         showLabel.addEventListener('click', function() {
@@ -1949,88 +2601,23 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             }
         });
 
-        // Enable/disable the checkbox when API key changes
-        keyInput.addEventListener('input', function() {
-            const hasKey = keyInput.value.trim() && keyInput.value.trim() !== 'YOUR_API_KEY_HERE';
-            const isEnabled = hasKey || PDA_MODE;
-            showCheckbox.disabled = !isEnabled;
-            showLabel.style.color = isEnabled ? colors.textPrimary : colors.textMuted;
-            showLabel.style.cursor = isEnabled ? 'pointer' : 'not-allowed';
-            updateDisplay(); // Update display when API key changes
-        });
+        // Note: API key input no longer affects the "Show API alongside" checkbox
+        // That checkbox is now only controlled by the "Show custom prices" setting
 
         // Update display when checkbox changes
         showCheckbox.addEventListener('change', function() {
-            updateDisplay();
+            SETTINGS.showApiValues = this.checked;
+            saveSettings();
         });
 
         showApiCheck.appendChild(showCheckbox);
         showApiCheck.appendChild(showLabel);
 
-        // Last retrieved display (aligned with "Show" text above)
-        const lastRetrievedDiv = document.createElement('div');
-        lastRetrievedDiv.style.cssText = mobile ?
-            'margin-bottom: 0px; padding-left: 20px; font-size: 12px; color: ' + colors.textMuted + ';' :
-            'margin-bottom: 0px; padding-left: 20px; font-size: 12px; color: ' + colors.textMuted + ';';
-
-        // Simple format function
-        function getLastRetrievedText() {
-            if (!apiPriceCache.lastFetched) return 'Last retrieved: Never';
-
-            const lastFetch = new Date(apiPriceCache.lastFetched);
-            const now = new Date();
-
-            // Get UTC components for display
-            const timeString = lastFetch.toISOString().substr(11, 5) + ' GMT';
-
-            // Calculate days difference
-            const diffDays = Math.floor((now - lastFetch) / (1000 * 60 * 60 * 24));
-
-            if (diffDays === 0) {
-                return 'Last retrieved: Today at ' + timeString;
-            } else if (diffDays === 1) {
-                return 'Last retrieved: Yesterday at ' + timeString;
-            } else {
-                // Format as dd mmm
-                const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-                const day = lastFetch.getUTCDate();
-                const month = months[lastFetch.getUTCMonth()];
-                return 'Last retrieved: ' + day + ' ' + month + ' at ' + timeString;
-            }
-        }
-
-        // Simple display update
-        function updateDisplay() {
-            const hasKey = (API_KEY && API_KEY !== 'YOUR_API_KEY_HERE') || (PDA_MODE && PDA_VALIDATED);
-            const showLink = hasKey && SETTINGS.showApiValues;
-            const refreshColors = getThemeColors();
-            const linkColor = currentTheme === 'dark' ? '#74c0fc' : refreshColors.primary;
-
-            lastRetrievedDiv.innerHTML = getLastRetrievedText() +
-                (showLink ? ' | <a href="#" id="refresh-link" style="color: ' + linkColor + '; text-decoration: none;">Refresh Prices</a>' : '');
-
-            if (showLink) {
-                const link = document.getElementById('refresh-link');
-                if (link) {
-                    link.onclick = function(e) {
-                        e.preventDefault();
-                        link.textContent = 'Refreshing...';
-                        updateApiPriceCache().then(function() {
-                            updateDisplay();
-                            refreshRewardDisplay();
-                        });
-                    };
-                }
-            }
-        }
-
-        updateDisplay(); // Initial call
-
         // Assemble API values section
         apiValuesSection.appendChild(showApiCheck);
-        apiValuesSection.appendChild(lastRetrievedDiv);
 
         otherSection.appendChild(otherTitle);
+        otherSection.appendChild(customPricesSection);
         otherSection.appendChild(apiValuesSection);
 
         // Indirect rewards section
@@ -2044,7 +2631,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         indirectCheckbox.style.cssText = indirectCheckboxStyle;
 
         const indirectLabel = document.createElement('label');
-        indirectLabel.textContent = mobile ? 'Show indirect rewards incl points and respect' : 'Show indirect rewards including points and respect';
+        indirectLabel.textContent = mobile ? 'Show other rewards incl points and respect' : 'Show other rewards including points and respect';
         indirectLabel.style.color = colors.textPrimary;
         indirectLabel.style.cursor = 'pointer';
 
@@ -2059,12 +2646,12 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         // Respect value input section
         const respectValueSection = document.createElement('div');
         respectValueSection.style.cssText = mobile ?
-            'display: flex; flex-direction: column; gap: 8px; margin-bottom: 15px; padding-left: 26px;' :
+            'display: flex; gap: 8px; align-items: center; margin-bottom: 15px; padding-left: 26px;' :
             'display: flex; gap: 8px; align-items: center; margin-bottom: 15px;';
 
         const respectLabel = document.createElement('label');
         respectLabel.textContent = 'Value per respect:';
-        respectLabel.style.cssText = 'color: ' + colors.textPrimary + '; ' + (mobile ? 'margin-bottom: 5px;' : 'width: 100px;');
+        respectLabel.style.cssText = 'color: ' + colors.textPrimary + '; ' + (mobile ? 'width: 100px; white-space: nowrap;' : 'width: 100px;');
 
         const respectInputRow = document.createElement('div');
         respectInputRow.style.cssText = 'display: flex; gap: 8px; align-items: center;' + (mobile ? ' flex-wrap: wrap; margin-bottom: 0;' : '');
@@ -2072,7 +2659,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         const respectInput = document.createElement('input');
         respectInput.type = 'text';
         respectInput.value = formatNumberWithCommas(SETTINGS.respectValue);
-        respectInput.placeholder = '25,000';
+        respectInput.placeholder = '20,000';
         respectInput.style.cssText = 'background: ' + colors.inputBg + '; border: 1px solid ' + colors.inputBorder + '; color: ' + colors.textPrimary + '; padding: 8px; border-radius: 4px; text-align: right; ' + (mobile ? 'width: 100px;' : 'width: 120px;');
 
         // Add real-time comma formatting for respect input
@@ -2107,7 +2694,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         const saveBtn = document.createElement('button');
         saveBtn.textContent = 'Save';
         const saveBtnColor = currentTheme === 'light' ? '#69a829' : colors.success;
-        saveBtn.style.cssText = 'background: ' + saveBtnColor + ' !important; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; width: 100%; margin-top: 15px; border-top: 1px solid ' + colors.configBorder + '; padding-top: 15px;';
+        saveBtn.style.cssText = 'background: ' + saveBtnColor + ' !important; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; width: 100%; margin-top: ' + (mobile ? '8px' : '15px') + '; border-top: 1px solid ' + colors.configBorder + '; padding-top: ' + (mobile ? '8px' : '15px') + ';';
 
         // Event handlers
         editBtn.onclick = function() {
@@ -2125,15 +2712,16 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             testBtn.textContent = 'Testing...';
             testBtn.disabled = true;
 
-            const result = await testApiKey(keyInput.value.trim());
+            try {
+                const result = await testApiKey(keyInput.value.trim());
 
-            if (result.success) {
-                const checkmark = mobile ? '&#9989;' : '✅';
-                const pdaIndicator = result.isPDA ? ' (PDA)' : '';
-                const dynamicValidationColor = currentTheme === 'light' ? '#69a829' : colors.success;
-                statusDiv.innerHTML = 'Status: <span style="color: ' + dynamicValidationColor + ';">' + checkmark + ' Valid - Welcome ' + result.name + pdaIndicator + '</span>';
-                testBtn.textContent = 'Valid!';
-                testBtn.style.background = colors.success;
+                if (result.success) {
+                    const checkmark = mobile ? '&#9989;' : '✅';
+                    const pdaIndicator = result.isPDA ? ' (PDA)' : '';
+                    const dynamicValidationColor = currentTheme === 'light' ? '#69a829' : colors.success;
+                    statusDiv.innerHTML = 'Status: <span style="color: ' + dynamicValidationColor + ';">' + checkmark + ' Valid - Welcome ' + result.name + pdaIndicator + '</span>';
+                    testBtn.textContent = 'Valid!';
+                    testBtn.style.background = colors.success;
 
                 // Store the validated username GLOBALLY
                 API_USERNAME = result.name;
@@ -2159,6 +2747,18 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                     }
                     console.log('RW: EXPLICIT save of username to localStorage:', API_USERNAME);
                 }
+
+                // Immediately fetch API prices after successful validation
+                console.log('RW: API validation successful - fetching prices immediately...');
+                updateApiPriceCache().then(function(success) {
+                    if (success) {
+                        console.log('RW: API prices fetched successfully during validation');
+                        updateLastRetrievedDisplay();
+                    } else {
+                        console.log('RW: Failed to fetch API prices during validation');
+                    }
+                });
+
                 saveSettings();
             } else {
                 const cross = mobile ? '&#10060;' : '❌';
@@ -2166,12 +2766,20 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 testBtn.textContent = 'Error';
                 testBtn.style.background = colors.danger;
             }
-
-            setTimeout(function() {
-                testBtn.textContent = 'Validate';
-                testBtn.style.background = colors.primary;
-                testBtn.disabled = false;
-            }, 3000);
+            } catch (error) {
+                console.error('RW: API validation exception:', error);
+                const cross = mobile ? '&#10060;' : '❌';
+                statusDiv.innerHTML = 'Status: <span style="color: ' + colors.danger + ';">' + cross + ' Validation failed - please try again</span>';
+                testBtn.textContent = 'Failed';
+                testBtn.style.background = colors.danger;
+            } finally {
+                // Always reset button after 3 seconds
+                setTimeout(function() {
+                    testBtn.textContent = 'Validate';
+                    testBtn.style.background = colors.primary;
+                    testBtn.disabled = false;
+                }, 3000);
+            }
         };
 
         resetApiBtn.onclick = function() {
@@ -2261,11 +2869,12 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
                 // Handle API-related updates - include PDA validation
                 const apiKeyChanged = previousApiKey !== API_KEY;
-                const needsApiUpdate = (SETTINGS.showApiValues && ((API_KEY && API_KEY !== 'YOUR_API_KEY_HERE') || (PDA_MODE && PDA_VALIDATED)));
+                const hasValidApiKey = ((API_KEY && API_KEY !== 'YOUR_API_KEY_HERE') || (PDA_MODE && PDA_VALIDATED));
+                const needsApiUpdate = hasValidApiKey;
 
-                console.log('RW: needsApiUpdate:', needsApiUpdate, 'apiKeyChanged:', apiKeyChanged);
+                console.log('RW: needsApiUpdate:', needsApiUpdate, 'apiKeyChanged:', apiKeyChanged, 'hasValidApiKey:', hasValidApiKey);
 
-                if (needsApiUpdate && (apiKeyChanged || !previousShowApiValues)) {
+                if (needsApiUpdate && apiKeyChanged) {
                     console.log('RW: API key available and show API enabled - fetching prices...');
                     updateApiPriceCache().then(function(success) {
                         if (success) {
@@ -2296,6 +2905,10 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 panel.style.padding = '0 15px';
                 setTimeout(function() { panel.remove(); }, 300);
 
+                // Refresh the reward display to update info box visibility and prices
+                console.log('RW: Refreshing display after settings panel close');
+                refreshRewardDisplay();
+
             } catch (error) {
                 console.error('RW: Error saving settings:', error);
                 alert('Error saving settings: ' + error.message);
@@ -2310,6 +2923,100 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
         // Insert after the title header
         titleHeader.insertAdjacentElement('afterend', panel);
+    }
+
+    // Create trader selector dropdown
+    function createTraderSelector() {
+        const colors = getThemeColors();
+        const mobile = isMobile();
+
+        // Filter to only show custom trader names (not default "Trader X")
+        const customTraders = sellerData.sellers
+            .map((seller, index) => ({ ...seller, index }))
+            .filter(seller => !seller.name.match(/^Trader \d+$/));
+
+        const container = document.createElement('div');
+        container.style.display = 'flex';
+        container.style.justifyContent = 'flex-end';
+        container.style.alignItems = 'center';
+        container.style.marginBottom = '10px';
+        container.style.fontSize = '11px';
+        container.style.gap = '6px';
+        container.style.width = '100%';
+        container.style.textAlign = 'right';
+
+        if (customTraders.length > 0) {
+            // Create dropdown with custom traders
+            const label = document.createElement('span');
+            label.textContent = 'Selected Trader:';
+            label.style.cssText = `color: ${colors.textMuted}; font-weight: normal; margin-right: 4px;`;
+
+            const dropdown = document.createElement('select');
+            dropdown.style.cssText = `
+                background: ${colors.inputBg};
+                color: ${colors.textPrimary};
+                border: 1px solid ${colors.inputBorder};
+                border-radius: 3px;
+                padding: 2px 6px;
+                font-size: 11px;
+                cursor: pointer;
+            `;
+
+            // Add options for each custom trader
+            customTraders.forEach(trader => {
+                const option = document.createElement('option');
+                option.value = trader.index;
+                option.textContent = trader.name;
+                option.selected = trader.index === sellerData.activeSeller;
+                dropdown.appendChild(option);
+            });
+
+            // Handle dropdown changes
+            dropdown.addEventListener('change', function() {
+                const newActiveIndex = parseInt(this.value);
+                sellerData.activeSeller = newActiveIndex;
+                saveSettings();
+                refreshRewardDisplay();
+            });
+
+            container.appendChild(label);
+            container.appendChild(dropdown);
+
+            // Add profile link if current trader has one
+            const currentTrader = sellerData.sellers[sellerData.activeSeller];
+            if (currentTrader) {
+                const userInfo = extractUserInfo(currentTrader.name);
+                if (userInfo.hasId) {
+                    const profileLink = createProfileLink(userInfo.id, colors);
+                    profileLink.style.fontSize = '10px';
+                    profileLink.style.marginLeft = '4px';
+                    container.appendChild(profileLink);
+                }
+            }
+
+        } else {
+            // Show fallback message with clickable link
+            const fallbackText = document.createElement('span');
+            fallbackText.style.cssText = `color: ${colors.textMuted};`;
+            fallbackText.textContent = 'No custom prices - ';
+
+            const configLink = document.createElement('a');
+            configLink.textContent = 'Configure Price List';
+            configLink.style.cssText = `
+                color: ${colors.primary};
+                text-decoration: none;
+                cursor: pointer;
+            `;
+            configLink.addEventListener('click', function(e) {
+                e.preventDefault();
+                showPricePanel();
+            });
+
+            fallbackText.appendChild(configLink);
+            container.appendChild(fallbackText);
+        }
+
+        return container;
     }
 
     // Separate function to create grand total container
@@ -2388,7 +3095,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             blueValue.style.color = colors.primary;
             blueValue.style.fontWeight = 'bold';
             blueValue.style.fontSize = '14px';
-            blueValue.textContent = numberFormatter(grandTotalValue, 2);
+            blueValue.textContent = grandTotalValue > 0 ? numberFormatter(grandTotalValue, 2) : '?';
 
             // Conditional arrow for alignment consistency with faction panels
             const expandArrow = document.createElement('span');
@@ -2450,22 +3157,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             const buyerLine = document.createElement('div');
             buyerLine.style.cssText = 'margin-top: 4px; font-size: 11px; color: ' + colors.textMuted + '; font-weight: normal;';
 
-            const buyerSpan = document.createElement('span');
-            buyerSpan.style.cssText = 'color: ' + colors.textMuted + '; font-size: 11px; font-weight: normal;';
-
-            // Only add buyer line if we have buyer info
-            if (userInfo.name && userInfo.name.trim()) {
-                buyerSpan.textContent = 'Buyer: ' + userInfo.name;
-
-                if (userInfo.hasId) {
-                    const profileLink = createProfileLink(userInfo.id, colors);
-                    profileLink.style.fontSize = '10px';
-                    buyerSpan.appendChild(profileLink);
-                }
-
-                buyerLine.appendChild(buyerSpan);
-                headerWrapper.appendChild(buyerLine);
-            }
+            // Buyer info removed - now handled by trader selector above
 
             header.appendChild(headerWrapper);
             header.appendChild(rightContent);
@@ -2483,15 +3175,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             const rightContent = document.createElement('div');
             rightContent.style.cssText = 'display: flex; align-items: center; gap: 8px; flex: 1; justify-content: flex-end;';
 
-            // Add buyer info before blue value
-            const buyerSpan = document.createElement('span');
-            buyerSpan.style.cssText = 'color: ' + colors.textMuted + '; font-size: 12px;';
-            buyerSpan.textContent = 'Buyer: ' + userInfo.name;
-
-            if (userInfo.hasId) {
-                const profileLink = createProfileLink(userInfo.id, colors);
-                buyerSpan.appendChild(profileLink);
-            }
+            // Buyer info removed - now handled by trader selector above
 
             // Add blue total value
             const valueSpan = document.createElement('span');
@@ -2499,7 +3183,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             valueSpan.style.fontWeight = 'bold';
             valueSpan.style.fontSize = '16px';
             valueSpan.style.marginRight = '8px'; // FIXED: Add gap before invisible arrow to match faction headers
-            valueSpan.textContent = numberFormatter(grandTotalValue, 2);
+            valueSpan.textContent = grandTotalValue > 0 ? numberFormatter(grandTotalValue, 2) : '?';
 
             // Conditional arrow for desktop layout
             const desktopExpandArrow = document.createElement('span');
@@ -2521,7 +3205,6 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             }
             desktopExpandArrow.innerHTML = getExpandArrow(false);
 
-            rightContent.appendChild(buyerSpan);
             rightContent.appendChild(valueSpan);
             rightContent.appendChild(desktopExpandArrow);
 
@@ -2609,8 +3292,8 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
         // Create title for the section
         const sectionTitle = document.createElement('div');
-        sectionTitle.style.cssText = 'margin-bottom: 12px; font-weight: bold; color: ' + colors.textPrimary + '; font-size: ' + (mobile ? '13px' : '14px') + ';';
-        sectionTitle.textContent = 'Indirect Rewards';
+        sectionTitle.style.cssText = 'margin-bottom: 12px; color: ' + colors.textPrimary + '; font-size: 12px;';
+        sectionTitle.textContent = 'Other Rewards';
         details.appendChild(sectionTitle);
 
         // Calculate and display indirect rewards for each faction
@@ -2697,7 +3380,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 // No indirect rewards
                 const noRewardsDiv = document.createElement('div');
                 noRewardsDiv.style.cssText = 'font-style: italic; color: ' + colors.textMuted + '; font-size: ' + (mobile ? '11px' : '12px') + ';';
-                noRewardsDiv.textContent = 'No indirect rewards';
+                noRewardsDiv.textContent = 'No other rewards';
                 factionDiv.appendChild(noRewardsDiv);
             }
 
@@ -2736,17 +3419,53 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         }
     }
 
-    function createCompactContainer(totalValue, index, grandTotalValue, factionName) {
+    function createCompactContainer(totalValue, index, grandTotalValue, factionName, allRewardData) {
         const colors = getThemeColors();
         const mobile = isMobile();
         const container = document.createElement('div');
 
         // Calculate distribution percentage for this reward
-        const percentage = grandTotalValue > 0 ? (totalValue / grandTotalValue * 100).toFixed(1) : 0;
+        const percentage = grandTotalValue > 0 ? (totalValue / grandTotalValue * 100).toFixed(1) : '?';
 
-        // Determine if this is the winner and set border color
-        const isWinner = parseFloat(percentage) > 50;
-        const borderColor = isWinner ? colors.success : colors.danger;
+        // Determine winner/loser and set border color with progressive fallback
+        let borderColor;
+        let isWinner = false;
+
+        if (percentage !== '?' && parseFloat(percentage) > 50) {
+            // Primary method: Use percentage-based determination when prices available
+            isWinner = true;
+            borderColor = colors.success;
+        } else if (percentage !== '?' && parseFloat(percentage) <= 50) {
+            // Primary method: Loser based on percentage
+            isWinner = false;
+            borderColor = colors.danger;
+        } else if (allRewardData && allRewardData.length === 2) {
+            // Secondary method: Use ranking-based determination when no prices
+            const faction0Outcome = allRewardData[0].rankingOutcome;
+            const faction1Outcome = allRewardData[1].rankingOutcome;
+
+            console.log("RWAwardValue: Ranking outcomes - Faction 0:", faction0Outcome, "Faction 1:", faction1Outcome);
+
+            // If one faction ranked down, they're the loser
+            if (faction0Outcome === 'loser' && faction1Outcome !== 'loser') {
+                // Faction 0 is loser, faction 1 is winner
+                isWinner = index === 1;
+                borderColor = index === 1 ? colors.success : colors.danger;
+                console.log("RWAwardValue: Faction 0 lost, faction 1 won. Current index:", index, "isWinner:", isWinner);
+            } else if (faction1Outcome === 'loser' && faction0Outcome !== 'loser') {
+                // Faction 1 is loser, faction 0 is winner
+                isWinner = index === 0;
+                borderColor = index === 0 ? colors.success : colors.danger;
+                console.log("RWAwardValue: Faction 1 lost, faction 0 won. Current index:", index, "isWinner:", isWinner);
+            } else {
+                // Tertiary fallback: Cannot determine winner/loser
+                borderColor = colors.primary; // Use blue as neutral
+                console.log("RWAwardValue: Cannot determine winner/loser from ranking, using blue");
+            }
+        } else {
+            // Tertiary fallback: Cannot determine winner/loser
+            borderColor = colors.primary; // Use blue as neutral
+        }
 
         // Set container styles
         container.style.background = colors.panelBg;
@@ -2789,7 +3508,10 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             titleSpan.style.fontWeight = 'bold';
             titleSpan.style.fontSize = '14px';
             titleSpan.style.color = colors.textPrimary;
-            titleSpan.innerHTML = factionName + ' <span style="color: ' + borderColor + ';">(' + percentage + '%)</span>';
+
+            // Truncate faction name on mobile if longer than 18 characters
+            const displayName = factionName.length > 18 ? factionName.substring(0, 18) + '...' : factionName;
+            titleSpan.innerHTML = displayName + ' <span style="color: ' + borderColor + ';">(' + percentage + '%)</span>';
 
             // Create right-aligned content area
             const rightContent = document.createElement('div');
@@ -2799,7 +3521,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             blueValue.style.color = colors.primary;
             blueValue.style.fontWeight = 'bold';
             blueValue.style.fontSize = '14px';
-            blueValue.textContent = numberFormatter(totalValue, 2);
+            blueValue.textContent = totalValue > 0 ? numberFormatter(totalValue, 2) : '?';
 
             const expandIcon = document.createElement('span');
             expandIcon.id = 'expand-icon-' + index;
@@ -2874,7 +3596,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             valueSpan.style.fontWeight = 'bold';
             valueSpan.style.fontSize = '16px';
             valueSpan.style.marginRight = '8px'; // Gap before expand arrow
-            valueSpan.textContent = numberFormatter(totalValue, 2);
+            valueSpan.textContent = totalValue > 0 ? numberFormatter(totalValue, 2) : '?';
 
             rightContent.appendChild(valueSpan);
 
@@ -2974,14 +3696,22 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     async function valueRow(row, index) {
         console.log("RWAwardValue: Processing row", index);
 
-        // Extract faction name from the row text
+        // Extract faction name and ranking outcome from the row text
         let factionName = "Unknown Faction";
+        let rankingOutcome = null;
         const rowText = row.innerText;
-        const factionMatch = rowText.match(/^([A-Za-z0-9\.\s]+)\s+ranked\s+(up|down)\s+from/);
+        const factionMatch = rowText.match(/^([A-Za-z0-9\.\s_'-]+)\s+(ranked\s+(up|down)\s+from|remained\s+at)/);
         if (factionMatch) {
             factionName = factionMatch[1].trim();
+            const rankingText = factionMatch[2].toLowerCase();
+
+            if (rankingText.includes('ranked down')) {
+                rankingOutcome = 'loser';
+            } else if (rankingText.includes('ranked up') || rankingText.includes('remained at')) {
+                rankingOutcome = 'winner';
+            }
         }
-        console.log("RWAwardValue: Extracted faction name:", factionName);
+        console.log("RWAwardValue: Extracted faction name:", factionName, "ranking outcome:", rankingOutcome);
 
         // Extract respect amount before "bonus respect, "
         let respectAmount = 0;
@@ -3075,11 +3805,33 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
                 const quantity = parseInt(item.substring(0, item.indexOf("x")));
 
-                // Use custom price if set, otherwise use default
+                // Determine price source based on settings and availability
                 const customPrice = getCustomPrice(cacheType);
-                cacheValue = customPrice > 0 ? customPrice : defaultValue;
+                const hasCustomPrice = customPrice > 0;
+                const hasApiPrice = apiPriceCache.data && apiPriceCache.data[cacheType];
+                const hasValidApiKey = (API_KEY && API_KEY !== 'YOUR_API_KEY_HERE') || PDA_VALIDATED;
 
-                itemValue = cacheValue * quantity;
+                // DEBUG: Log pricing decision
+                console.log(`RW DEBUG: ${cacheType} - customPrice: ${customPrice}, hasCustomPrice: ${hasCustomPrice}, hasApiPrice: ${hasApiPrice}, showCustomPrices: ${SETTINGS.showCustomPrices}, hasValidApiKey: ${hasValidApiKey}`);
+                if (hasApiPrice) {
+                    console.log(`RW DEBUG: ${cacheType} - API price available: ${apiPriceCache.data[cacheType]}`);
+                }
+
+                // Priority: Custom prices (if enabled) > API prices (if available) > No pricing (show "?")
+                if (SETTINGS.showCustomPrices && hasCustomPrice) {
+                    cacheValue = customPrice;
+                    itemValue = cacheValue * quantity;
+                    console.log(`RW DEBUG: ${cacheType} - Using custom price: ${cacheValue}`);
+                } else if (hasApiPrice && hasValidApiKey) {
+                    cacheValue = apiPriceCache.data[cacheType];
+                    itemValue = cacheValue * quantity;
+                    console.log(`RW DEBUG: ${cacheType} - Using API price: ${cacheValue}`);
+                } else {
+                    // No prices available - show "?"
+                    cacheValue = 0;
+                    itemValue = 0;
+                    console.log(`RW DEBUG: ${cacheType} - No pricing available, showing ?`);
+                }
 
                 rawItem = {
                     type: 'cache',
@@ -3089,7 +3841,12 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 };
 
                 rowTotalValue += itemValue;
-                itemName = item + ' (' + numberFormatter(itemValue) + ' total)';
+                // Only format value if we have a price, otherwise show just the item name
+                if (itemValue > 0) {
+                    itemName = item + ' (' + numberFormatter(itemValue) + ' total)';
+                } else {
+                    itemName = item; // Just show the item name without pricing
+                }
             }
 
             if (rawItem) {
@@ -3097,7 +3854,6 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             }
 
             // Create item display element with ENHANCED FORMAT
-            if (itemValue > 0) {
                 const itemDiv = document.createElement('div');
                 itemDiv.style.background = colors.statBoxBg;
                 itemDiv.style.padding = mobile ? '8px' : '10px';
@@ -3127,27 +3883,72 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                         cacheTypeName = 'Armor';
                         cacheTypeForApi = 'armorCache';
                         const customPrice = getCustomPrice('armorCache');
-                        individualPrice = customPrice > 0 ? customPrice : 312400000;
+                        const hasCustomPrice = customPrice > 0;
+                        const hasApiPrice = SETTINGS.showApiValues && apiPriceCache.data && apiPriceCache.data['armorCache'];
+
+                        if (SETTINGS.showCustomPrices && hasCustomPrice) {
+                            individualPrice = customPrice;
+                        } else if (hasApiPrice) {
+                            individualPrice = apiPriceCache.data['armorCache'];
+                        } else {
+                            individualPrice = 0;
+                        }
                     } else if (item.includes("Heavy Arms Cache")) {
                         cacheTypeName = 'Heavy Arms';
                         cacheTypeForApi = 'heavyArmsCache';
                         const customPrice = getCustomPrice('heavyArmsCache');
-                        individualPrice = customPrice > 0 ? customPrice : 250000000;
+                        const hasCustomPrice = customPrice > 0;
+                        const hasApiPrice = SETTINGS.showApiValues && apiPriceCache.data && apiPriceCache.data['heavyArmsCache'];
+
+                        if (SETTINGS.showCustomPrices && hasCustomPrice) {
+                            individualPrice = customPrice;
+                        } else if (hasApiPrice) {
+                            individualPrice = apiPriceCache.data['heavyArmsCache'];
+                        } else {
+                            individualPrice = 0;
+                        }
                     } else if (item.includes("Medium Arms Cache")) {
                         cacheTypeName = 'Medium Arms';
                         cacheTypeForApi = 'mediumArmsCache';
                         const customPrice = getCustomPrice('mediumArmsCache');
-                        individualPrice = customPrice > 0 ? customPrice : 191000000;
+                        const hasCustomPrice = customPrice > 0;
+                        const hasApiPrice = SETTINGS.showApiValues && apiPriceCache.data && apiPriceCache.data['mediumArmsCache'];
+
+                        if (SETTINGS.showCustomPrices && hasCustomPrice) {
+                            individualPrice = customPrice;
+                        } else if (hasApiPrice) {
+                            individualPrice = apiPriceCache.data['mediumArmsCache'];
+                        } else {
+                            individualPrice = 0;
+                        }
                     } else if (item.includes("Melee Cache")) {
                         cacheTypeName = 'Melee';
                         cacheTypeForApi = 'meleeCache';
                         const customPrice = getCustomPrice('meleeCache');
-                        individualPrice = customPrice > 0 ? customPrice : 139500000;
+                        const hasCustomPrice = customPrice > 0;
+                        const hasApiPrice = SETTINGS.showApiValues && apiPriceCache.data && apiPriceCache.data['meleeCache'];
+
+                        if (SETTINGS.showCustomPrices && hasCustomPrice) {
+                            individualPrice = customPrice;
+                        } else if (hasApiPrice) {
+                            individualPrice = apiPriceCache.data['meleeCache'];
+                        } else {
+                            individualPrice = 0;
+                        }
                     } else if (item.includes("Small Arms Cache")) {
                         cacheTypeName = 'Small Arms';
                         cacheTypeForApi = 'smallArmsCache';
                         const customPrice = getCustomPrice('smallArmsCache');
-                        individualPrice = customPrice > 0 ? customPrice : 111400000;
+                        const hasCustomPrice = customPrice > 0;
+                        const hasApiPrice = SETTINGS.showApiValues && apiPriceCache.data && apiPriceCache.data['smallArmsCache'];
+
+                        if (SETTINGS.showCustomPrices && hasCustomPrice) {
+                            individualPrice = customPrice;
+                        } else if (hasApiPrice) {
+                            individualPrice = apiPriceCache.data['smallArmsCache'];
+                        } else {
+                            individualPrice = 0;
+                        }
                     }
 
                     if (mobile) {
@@ -3158,8 +3959,8 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                             enhancedItemName = quantity + 'x ' + cacheTypeName + ' Cache';
                         }
 
-                        // Add API comparison if available
-                        if (SETTINGS.showApiValues && item.includes("Cache") && Object.keys(apiPriceCache.data).length > 0 && cacheTypeForApi && apiPriceCache.data[cacheTypeForApi]) {
+                        // Add API comparison if available and custom prices are enabled
+                        if (SETTINGS.showCustomPrices && SETTINGS.showApiValues && item.includes("Cache") && Object.keys(apiPriceCache.data).length > 0 && cacheTypeForApi && apiPriceCache.data[cacheTypeForApi] && individualPrice > 0) {
                             const apiValue = apiPriceCache.data[cacheTypeForApi] * quantity;
                             const customValue = itemValue;
                             const percentDiff = customValue > 0 ? ((customValue - apiValue) / apiValue * 100) : 0;
@@ -3178,11 +3979,20 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                             }
                         }
                     } else {
-                        // Desktop: Single line layout (unchanged)
-                        if (quantity === 1) {
-                            enhancedItemName = '1x ' + cacheTypeName + ' Cache (' + formatNumberWithCommas(individualPrice) + ')';
+                        // Desktop: Single line layout
+                        if (individualPrice > 0) {
+                            if (quantity === 1) {
+                                enhancedItemName = '1x ' + cacheTypeName + ' Cache (' + formatNumberWithCommas(individualPrice) + ')';
+                            } else {
+                                enhancedItemName = quantity + 'x ' + cacheTypeName + ' Cache (' + quantity + 'x ' + formatNumberWithCommas(individualPrice) + ')';
+                            }
                         } else {
-                            enhancedItemName = quantity + 'x ' + cacheTypeName + ' Cache (' + quantity + 'x ' + formatNumberWithCommas(individualPrice) + ')';
+                            // No price available - show just quantity and cache name
+                            if (quantity === 1) {
+                                enhancedItemName = '1x ' + cacheTypeName + ' Cache';
+                            } else {
+                                enhancedItemName = quantity + 'x ' + cacheTypeName + ' Cache';
+                            }
                         }
                     }
                 } else {
@@ -3203,7 +4013,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 valueContainer.style.gap = '8px';
 
                 // Add API comparison for cache items if enabled and API data available (DESKTOP ONLY)
-                if (!mobile && SETTINGS.showApiValues && item.includes("Cache") && Object.keys(apiPriceCache.data).length > 0 && cacheTypeForApi && apiPriceCache.data[cacheTypeForApi]) {
+                if (!mobile && SETTINGS.showCustomPrices && SETTINGS.showApiValues && item.includes("Cache") && Object.keys(apiPriceCache.data).length > 0 && cacheTypeForApi && apiPriceCache.data[cacheTypeForApi] && itemValue > 0) {
                     const quantity = parseInt(item.substring(0, item.indexOf("x")));
                     const apiValue = apiPriceCache.data[cacheTypeForApi] * quantity;
                     const customValue = itemValue;
@@ -3271,7 +4081,6 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                     itemDiv.setAttribute('data-cache-type', rawItem.cacheType || 'points');
                     itemDiv.setAttribute('data-item-type', rawItem.type);
                 }
-            }
         }
 
         console.log("RWAwardValue: Row", index, "total value:", rowTotalValue);
@@ -3280,6 +4089,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             itemElements: itemElements,
             factionName: factionName,
             respectAmount: respectAmount,
+            rankingOutcome: rankingOutcome, // Store ranking outcome for winner/loser determination
             row: row
         };
 
@@ -3345,5 +4155,5 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     // Start theme monitoring
     monitorThemeChanges();
 
-    console.log("RWAwardValue: Script setup complete v2.1");
+    console.log("RWAwardValue: Script setup complete v3.0");
 })();
