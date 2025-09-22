@@ -946,7 +946,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     function addIconsToTopHeader() {
         const colors = getThemeColors();
 
-        // Find the "Ranked War #28098" header
+        // Find the "Ranked War # header
         const titleHeader = document.querySelector('.title-black.m-top10.top-round') ||
                            document.querySelector('.title-black') ||
                            document.querySelector('[class*="title"]');
@@ -976,7 +976,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         const buttonContainer = document.createElement('div');
         buttonContainer.style.cssText = 'display: flex; align-items: center; height: 100%; margin-left: auto;';
 
-        // Price list button with text instead of icon - MADE BIGGER AND MORE CLICKABLE
+        // Price list button with text instead of icon
         const priceButton = document.createElement('button');
         priceButton.id = 'rw-price-btn-header';
         priceButton.textContent = 'Price List';
@@ -988,7 +988,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         separator.textContent = ' | ';
         separator.style.cssText = 'color: rgba(255, 255, 255, 0.5); font-size: 1em; margin: 0 4px;';
 
-        // Settings button with text instead of icon - MADE BIGGER AND MORE CLICKABLE
+        // Settings button with text instead of icon
         const settingsButton = document.createElement('button');
         settingsButton.id = 'rw-settings-btn-header';
         settingsButton.textContent = 'Settings';
@@ -1131,7 +1131,6 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
         if (reportTitle && firstFactionText) {
             // Find the element that contains both the title and the faction descriptions
-            // We want to insert after the title but before the faction rank descriptions
             const titleParent = reportTitle.parentElement;
             const factionParent = firstFactionText.parentElement;
 
@@ -1223,7 +1222,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                         // Create enhanced item name format
                         let itemName = '';
                         if (item.type === 'cache') {
-                            // Use proper cache type names instead of auto-generated ones
+                            // Use proper cache type names 
                             let cacheTypeName = '';
                             switch(item.cacheType) {
                                 case 'armorCache':
@@ -1292,7 +1291,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                                 // Mobile: Keep points simple since they don't have complex breakdown
                                 itemName = item.quantity.toLocaleString() + ' points<br><span style="font-size: 11px; color: ' + detailColors.textMuted + ';">(' + (item.calculatedValue > 0 ? numberFormatter(item.calculatedValue) : '?') + ' total)</span>';
                             } else {
-                                // Desktop: Single line (unchanged)
+                                // Desktop: Single line 
                                 itemName = item.quantity.toLocaleString() + ' points (' + (item.calculatedValue > 0 ? numberFormatter(item.calculatedValue) : '?') + ' total)';
                             }
                         }
@@ -1452,7 +1451,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         console.log("RWAwardValue: Script completed successfully!");
     }
 
-    // Panel Management Functions - Convert to slide-down panels like gym script
+    // Panel Management Functions - Convert to slide-down panels (same as my gym script)
     function showPricePanel() {
         const colors = getThemeColors();
         const mobile = isMobile();
@@ -2580,7 +2579,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         const showCheckbox = document.createElement('input');
         showCheckbox.type = 'checkbox';
         showCheckbox.checked = SETTINGS.showApiValues;
-        // Only disable if custom prices are not enabled (API key status is irrelevant for this comparison feature)
+        // Only disable if custom prices are not enabled
         const customPricesDisabled = !SETTINGS.showCustomPrices;
         showCheckbox.disabled = customPricesDisabled;
 
@@ -2723,7 +2722,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                     testBtn.textContent = 'Valid!';
                     testBtn.style.background = colors.success;
 
-                // Store the validated username GLOBALLY
+                // Store the validated username
                 API_USERNAME = result.name;
 
                 // If this was a PDA validation, set PDA validated flag
@@ -3051,7 +3050,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             }
         }
 
-        // Create grand total container (matching faction reward style)
+        // Create grand total container
         const grandContainer = document.createElement('div');
         grandContainer.style.background = colors.panelBg;
         grandContainer.style.border = '1px solid ' + colors.panelBorder;
@@ -3063,7 +3062,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         grandContainer.style.overflow = 'hidden';
         grandContainer.style.position = 'relative';
 
-        // Create single header (matching faction reward style)
+        // Create single header
         const header = document.createElement('div');
         header.style.padding = mobile ? '10px 12px' : '12px 15px';
         header.style.cursor = 'pointer';
@@ -3072,7 +3071,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         header.style.borderLeft = '3px solid ' + colors.primary; // Blue left border
         header.style.transition = 'background-color 0.2s ease';
 
-        // Create header content container (matching faction reward structure)
+        // Create header content container
         const headerContent = document.createElement('div');
         const currentSeller = sellerData.sellers[sellerData.activeSeller];
         const userInfo = extractUserInfo(currentSeller.name);
@@ -3501,7 +3500,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         titleSpan.style.marginRight = '8px';
 
         if (mobile) {
-            // Mobile: Use the working structure from attached document
+            // Mobile: working structure
             headerContent.style.cssText = 'display: flex; justify-content: space-between; align-items: center; width: 100%;';
 
             const titleSpan = document.createElement('span');
@@ -3545,7 +3544,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 const percentDiff = customValue > 0 ? ((customValue - apiValue) / apiValue * 100) : 0;
 
                 if (Math.abs(percentDiff) > 0.1) {
-                    // Create container for header content with API line (desktop pattern)
+                    // Create container for header content with API line
                     const headerWrapper = document.createElement('div');
                     headerWrapper.style.cssText = 'display: flex; flex-direction: column; align-items: flex-start;';
 
@@ -3600,16 +3599,16 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
             rightContent.appendChild(valueSpan);
 
-            // Create expand icon - FIXED: Make sure dimensions match exactly
+            // Create expand icon
             const expandIcon = document.createElement('span');
             expandIcon.id = 'expand-icon-' + index;
             expandIcon.style.transition = 'transform 0.2s ease';
-            expandIcon.style.fontSize = '14px'; // FIXED: Ensure consistent size
+            expandIcon.style.fontSize = '14px';
             expandIcon.style.color = colors.primary;
             expandIcon.style.fontWeight = 'bold';
-            expandIcon.style.width = '14px'; // FIXED: Set explicit width
-            expandIcon.style.textAlign = 'center'; // FIXED: Center the arrow
-            expandIcon.style.display = 'inline-block'; // FIXED: Ensure proper box model
+            expandIcon.style.width = '14px';
+            expandIcon.style.textAlign = 'center';
+            expandIcon.style.display = 'inline-block';
             expandIcon.innerHTML = getExpandArrow(false); // Start collapsed - USE innerHTML for HTML entities
 
             rightContent.appendChild(expandIcon);
@@ -4101,7 +4100,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         };
     }
 
-    // FIXED CSS SELECTOR - Use robust partial matching
+    // FIXED CSS SELECTOR - robust partial matching
     const checkRows = async function() {
         console.log("RWAwardValue: Checking for rows...");
 
