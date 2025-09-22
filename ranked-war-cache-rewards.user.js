@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Ranked War Cache Rewards Value
 // @namespace    http://tampermonkey.net/
-// @version      3.0
+// @version      3.1
 // @description  Calculate and display ranked war cache reward values with % of total reward split, custom pricing, API integration, PDA support, and other rewards (points/respect). Features automatic theme detection and multiple trader configurations.
 // @author       Mistborn [3037268]
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=torn.com
@@ -27,7 +27,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
 
 (function () {
     "use strict";
-    console.log("RWAwardValue: Script starting v3.0");
+    console.log("RWAwardValue: Script starting v3.1");
 
     // Enhanced PDA detection
     function isTornPDA() {
@@ -1099,7 +1099,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             existingContainer.remove();
         }
 
-        // Recreate with updated data (this will include API values in headers)
+        // Recreate with updated data (includes API values in headers)
         setTimeout(function() { createAndDisplayContainers(); }, 100);
     }
 
@@ -1191,7 +1191,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
             // Populate details with updated item elements
             const details = container.querySelector('#rw-details-' + i);
 
-            // Use the updated item elements that include API values, not the original ones
+            // Use the updated item elements that include API values
             if (rawRewardData && rawRewardData[i] && rawRewardData[i].items) {
                 console.log('RWAwardValue: Building updated item elements for', rewardData[i].factionName);
                 // Clear existing items
@@ -1288,7 +1288,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                             }
                         } else if (item.type === 'points') {
                             if (isMobileView) {
-                                // Mobile: Keep points simple since they don't have complex breakdown
+                                // Mobile: Keep points simple
                                 itemName = item.quantity.toLocaleString() + ' points<br><span style="font-size: 11px; color: ' + detailColors.textMuted + ';">(' + (item.calculatedValue > 0 ? numberFormatter(item.calculatedValue) : '?') + ' total)</span>';
                             } else {
                                 // Desktop: Single line 
@@ -2370,7 +2370,7 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
         resetApiBtn.style.cssText = 'background: ' + colors.danger + '; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; ' + (mobile ? 'flex: 1; min-width: 0;' : '');
         resetApiBtn.title = 'Clear API key and cache';
 
-        // Create status div first so we can position it correctly
+        // Create status div first
         const statusDiv = document.createElement('div');
         statusDiv.style.cssText = 'margin-left: ' + (mobile ? '0px' : '110px') + '; font-size: 12px; color: ' + colors.textMuted + '; ' + (mobile ? 'text-align: left; margin-top: 4px; margin-bottom: 12px;' : '');
         const statusPrefix = mobile ? 'Status: ' : 'Status: ';
@@ -2563,6 +2563,9 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
                 showCheckbox.checked = false;
                 saveSettings();
             }
+
+            // Refresh display to apply custom price changes immediately
+            refreshRewardDisplay();
         });
 
         showCustomPricesCheck.appendChild(customPricesCheckbox);
@@ -4154,5 +4157,5 @@ const PDA_POINTS_API_URL = 'https://api.torn.com/torn/?selections=pointsmarket&k
     // Start theme monitoring
     monitorThemeChanges();
 
-    console.log("RWAwardValue: Script setup complete v3.0");
+    console.log("RWAwardValue: Script setup complete v3.1");
 })();
